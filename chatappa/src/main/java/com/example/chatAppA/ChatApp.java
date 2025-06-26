@@ -1,23 +1,11 @@
 package com.example.chatAppA;
 
-import java.awt.BorderLayout;
-import java.awt.FlowLayout;
-import java.awt.event.ActionListener;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
-
-import javax.swing.JButton;
-import javax.swing.JFrame;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
-import javax.swing.JTextField;
-import javax.swing.SwingUtilities;
 
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.BuiltinExchangeType;
@@ -26,147 +14,110 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 
-public class ChatApp extends JFrame {
+public class ChatApp {
 
-    // Fixed clientId from environment variable or fallback
     private static final String clientId = System.getenv("CLIENT_ID") != null
             ? System.getenv("CLIENT_ID")
             : "default-client";
 
-    private final String queueName = "chat-queue-" + clientId;
+    private static final String queueName = "chat-queue-" + clientId;
     private static final String EXCHANGE_NAME = "chat_exchange";
-
-    private JTextArea chatArea;
-    private JTextField inputField;
-    private JButton sendButton;
 
     private Connection connection;
     private Channel channel;
 
-    public ChatApp() {
-        super("RabbitMQ Chat App - " + clientId);
-
-        // Setup GUI
-        chatArea = new JTextArea(20, 50);
-        chatArea.setEditable(false);
-        JScrollPane scrollPane = new JScrollPane(chatArea);
-
-        inputField = new JTextField(40);
-        sendButton = new JButton("Send");
-
-        JPanel inputPanel = new JPanel(new FlowLayout());
-        inputPanel.add(inputField);
-        inputPanel.add(sendButton);
-
-        this.getContentPane().setLayout(new BorderLayout());
-        this.getContentPane().add(scrollPane, BorderLayout.CENTER);
-        this.getContentPane().add(inputPanel, BorderLayout.SOUTH);
-
-        this.pack();
-        this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        this.setLocationRelativeTo(null);
-
-        // Connect to RabbitMQ
+    public static void main(String[] args) {
+        ChatApp app = new ChatApp();
         try {
-            setupRabbitMQ();
+            app.setupRabbitMQ();
+            System.out.println("Connected as client: " + clientId);
+            app.startConsoleChat();
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Failed to connect to RabbitMQ: " + e.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+            System.err.println("Failed to start chat app: " + e.getMessage());
+            e.printStackTrace();
             System.exit(1);
         }
-
-        // Send message on button click or enter key
-        ActionListener sendAction = e -> sendMessage();
-        sendButton.addActionListener(sendAction);
-        inputField.addActionListener(sendAction);
-
-        // Cleanup on close
-        this.addWindowListener(new WindowAdapter() {
-            public void windowClosing(WindowEvent e) {
-                cleanup();
-            }
-        });
     }
 
-    private void setupRabbitMQ() throws IOException, TimeoutException {
+    private void setupRabbitMQ() throws IOException, TimeoutException, InterruptedException {
         ConnectionFactory factory = new ConnectionFactory();
-        String rabbitHost = System.getenv().getOrDefault("RABBIT_HOST", "localhost");
+        String rabbitHost = System.getenv().getOrDefault("RABBIT_HOST", "rabbitmq");
         factory.setHost(rabbitHost);
-        factory.setHost("rabbitmq"); // Use "localhost" if running locally without Docker
 
-        connection = factory.newConnection();
+        int maxRetries = 30;
+        for (int i = 1; i <= maxRetries; i++) {
+            try {
+                connection = factory.newConnection();
+                break;
+            } catch (IOException | TimeoutException e) {
+                if (i == maxRetries) throw e;
+                System.out.println("Waiting for RabbitMQ… (" + i + "/" + maxRetries + ")");
+                Thread.sleep(1000);
+            }
+        }
+
         channel = connection.createChannel();
-
-        // Durable fanout exchange
         channel.exchangeDeclare(EXCHANGE_NAME, BuiltinExchangeType.FANOUT, true);
-
-        // Declare durable queue per client, persistent messages
         channel.queueDeclare(queueName, true, false, false, null);
         channel.queueBind(queueName, EXCHANGE_NAME, "");
 
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
             Map<String, Object> headers = delivery.getProperties().getHeaders();
-            final String sender;
+            String sender = "";
             if (headers != null && headers.get("sender") != null) {
                 sender = headers.get("sender").toString();
-            } else {
-                sender = "";
             }
-
             if (!sender.equals(clientId)) {
                 String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                SwingUtilities.invokeLater(() -> {
-                    chatArea.append("[From " + sender + "]: " + message + "\n");
-                    chatArea.setCaretPosition(chatArea.getDocument().getLength());
-                });
+                System.out.println("\n[From " + sender + "]: " + message);
+                System.out.print("> "); // Reprint prompt
+                System.out.flush();
             }
-
             channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
         };
 
-        // Consume messages manually acked
         channel.basicConsume(queueName, false, deliverCallback, consumerTag -> {});
-
-        chatArea.append("Connected as client: " + clientId + "\n");
     }
 
-    private void sendMessage() {
-        String message = inputField.getText().trim();
-        if (message.isEmpty())
-            return;
+    private void startConsoleChat() throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        System.out.println("Type your messages below. Press Ctrl+C to exit.");
+        System.out.print("> ");
 
+        String line;
+        while ((line = reader.readLine()) != null) {
+            String message = line.trim();
+            if (message.isEmpty()) {
+                System.out.print("> ");
+                continue;
+            }
+            sendMessage(message);
+            System.out.print("> ");
+        }
+        cleanup();
+    }
+
+    private void sendMessage(String message) {
         try {
             AMQP.BasicProperties props = new AMQP.BasicProperties.Builder()
                     .headers(Map.of("sender", clientId))
-                    .deliveryMode(2) // Persistent messages
+                    .deliveryMode(2) // Persistent
                     .build();
 
             channel.basicPublish(EXCHANGE_NAME, "", props, message.getBytes(StandardCharsets.UTF_8));
-
-            chatArea.append("[Sent]: " + message + "\n");
-            chatArea.setCaretPosition(chatArea.getDocument().getLength());
-            inputField.setText("");
+            System.out.println("[Sent]: " + message);
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Failed to send message: " + e.getMessage(), "Error",
-                    JOptionPane.ERROR_MESSAGE);
+            System.err.println("Failed to send message: " + e.getMessage());
         }
     }
 
     private void cleanup() {
         try {
-            if (channel != null && channel.isOpen())
-                channel.close();
-            if (connection != null && connection.isOpen())
-                connection.close();
+            if (channel != null && channel.isOpen()) channel.close();
+            if (connection != null && connection.isOpen()) connection.close();
         } catch (Exception e) {
-            // Ignore exceptions on close
+            // ignore
         }
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            ChatApp app = new ChatApp();
-            app.setVisible(true);
-        });
+        System.out.println("Chat app closed.");
     }
 }
