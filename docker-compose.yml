@@ -1,32 +1,42 @@
+version: "3.8"
+
 services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"      # AMQP protocol
-      - "15672:15672"    # Management UI
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     networks:
       - chat-network
+    restart: unless-stopped
 
-  chatappa:      # all lowercase here
-    build: ./chatappa   # folder also lowercase
+  chatappa:
+    build: ./chatappa
     environment:
       - CLIENT_ID=clientA
-      - RABBIT_HOST=rabbitmq
+      - RABBIT_HOST=localhost
     depends_on:
       - rabbitmq
     networks:
       - chat-network
+    restart: unless-stopped
 
   chatappb:
     build: ./chatappb
     environment:
       - CLIENT_ID=clientB
-      - RABBIT_HOST=rabbitmq
+      - RABBIT_HOST=localhost
     depends_on:
       - rabbitmq
     networks:
       - chat-network
+    restart: unless-stopped
 
 networks:
   chat-network:
     driver: bridge
+
+volumes:
+  rabbitmq-data:

@@ -21,4 +21,4 @@ COPY wait-for-it.sh .
 
 RUN chmod +x wait-for-it.sh
 
-CMD ["./wait-for-it.sh", "rabbitmq:5672", "--timeout=30", "--", "java", "-jar", "app.jar"]
+CMD ["./wait-for-it.sh", "localhost:5672", "--timeout=30", "--", "java", "-jar", "app.jar"]

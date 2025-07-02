@@ -18,7 +18,7 @@ public class ChatApp {
 
     private static final String clientId = System.getenv("CLIENT_ID") != null
             ? System.getenv("CLIENT_ID")
-            : "default-client";
+            : "client-A";
 
     private static final String queueName = "chat-queue-" + clientId;
     private static final String EXCHANGE_NAME = "chat_exchange";
@@ -41,7 +41,7 @@ public class ChatApp {
 
     private void setupRabbitMQ() throws IOException, TimeoutException, InterruptedException {
         ConnectionFactory factory = new ConnectionFactory();
-        String rabbitHost = System.getenv().getOrDefault("RABBIT_HOST", "rabbitmq");
+        String rabbitHost = System.getenv().getOrDefault("RABBIT_HOST", "localhost");
         factory.setHost(rabbitHost);
 
         int maxRetries = 30;
