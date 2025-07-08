@@ -30,10 +30,10 @@ public class ChatApp {
         ChatApp app = new ChatApp();
         try {
             app.setupRabbitMQ();
-            System.out.println("Connected as client: " + clientId);
+            System.out.println("Conetado como: " + clientId);
             app.startConsoleChat();
         } catch (Exception e) {
-            System.err.println("Failed to start chat app: " + e.getMessage());
+            System.err.println("Erro para abrir o chat: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
@@ -51,7 +51,7 @@ public class ChatApp {
                 break;
             } catch (IOException | TimeoutException e) {
                 if (i == maxRetries) throw e;
-                System.out.println("Waiting for RabbitMQ… (" + i + "/" + maxRetries + ")");
+                System.out.println("Esperando Conexão... (" + i + "/" + maxRetries + ")");
                 Thread.sleep(1000);
             }
         }
@@ -69,8 +69,8 @@ public class ChatApp {
             }
             if (!sender.equals(clientId)) {
                 String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                System.out.println("\n[From " + sender + "]: " + message);
-                System.out.print("> "); // Reprint prompt
+                System.out.println("\n[De " + sender + "]: " + message);
+                System.out.print("> ");
                 System.out.flush();
             }
             channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
@@ -81,7 +81,7 @@ public class ChatApp {
 
     private void startConsoleChat() throws IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-        System.out.println("Type your messages below. Press Ctrl+C to exit.");
+        System.out.println("Escreva as mensajens. (Ctrl + C para terminar o programa)");
         System.out.print("> ");
 
         String line;
@@ -101,13 +101,13 @@ public class ChatApp {
         try {
             AMQP.BasicProperties props = new AMQP.BasicProperties.Builder()
                     .headers(Map.of("sender", clientId))
-                    .deliveryMode(2) // Persistent
+                    .deliveryMode(2)
                     .build();
 
             channel.basicPublish(EXCHANGE_NAME, "", props, message.getBytes(StandardCharsets.UTF_8));
-            System.out.println("[Sent]: " + message);
+            System.out.println("[Enviado]: " + message);
         } catch (IOException e) {
-            System.err.println("Failed to send message: " + e.getMessage());
+            System.err.println("Erro ao enviar mensajem: " + e.getMessage());
         }
     }
 
@@ -118,6 +118,6 @@ public class ChatApp {
         } catch (Exception e) {
             // ignore
         }
-        System.out.println("Chat app closed.");
+        System.out.println("App fechada.");
     }
 }
